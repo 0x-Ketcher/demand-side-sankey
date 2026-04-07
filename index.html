@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demand Side Sankey — Sky Ecosystem</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242836;
+      --border: #2e3348;
+      --text: #e4e6f0;
+      --text-dim: #8b8fa8;
+      --accent: #7c6bf0;
+      --accent-light: #a89df5;
+      --sky-pink: #e8a0bf;
+      --keel-purple: #9b7fe8;
+      --user-blue: #6db5e8;
+      --ssr-green: #5ec6a0;
+      --dr-orange: #e8956d;
+      --treasury-gold: #d4a843;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      grid-template-rows: 1fr auto;
+      height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      grid-row: 1 / -1;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+
+    .sidebar h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .sidebar .subtitle { font-size: 12px; color: var(--text-dim); margin-bottom: 24px; }
+
+    .section-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;
+    }
+
+    .section-divider {
+      border: none; border-top: 1px solid var(--border); margin: 20px 0;
+    }
+
+    .control-row {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    .control-row label { font-size: 13px; }
+    .control-row .value { font-size: 13px; font-weight: 600; color: var(--accent-light); min-width: 80px; text-align: right; }
+
+    .inline-input {
+      width: 70px; padding: 2px 6px; font-size: 12px; font-weight: 600;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--accent-light); text-align: right; outline: none;
+    }
+    .inline-input:focus { border-color: var(--accent); }
+    .inline-input::-webkit-inner-spin-button,
+    .inline-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .inline-input { -moz-appearance: textfield; }
+
+    input[type="range"] {
+      width: 100%; height: 4px; -webkit-appearance: none; appearance: none;
+      background: var(--border); border-radius: 2px; outline: none; margin-top: 2px; margin-bottom: 10px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent); cursor: pointer; border: 2px solid var(--bg);
+    }
+
+    /* Partner cards */
+    .partner-card {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px; margin-bottom: 8px; transition: border-color 0.2s;
+    }
+    .partner-card:hover { border-color: var(--accent); }
+
+    .partner-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .partner-name { font-size: 14px; font-weight: 600; }
+    .partner-remove {
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      font-size: 16px; padding: 0 4px; line-height: 1;
+    }
+    .partner-remove:hover { color: #e85d5d; }
+
+    .partner-type { display: flex; gap: 6px; margin-bottom: 6px; }
+    .type-badge {
+      font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px;
+    }
+    .type-badge.ib { background: rgba(94,198,160,0.15); color: var(--ssr-green); }
+    .type-badge.dr { background: rgba(232,149,109,0.15); color: var(--dr-orange); }
+    .type-badge.treasury { background: rgba(212,168,67,0.15); color: var(--treasury-gold); }
+    .type-badge.defi { background: rgba(109,181,232,0.15); color: var(--user-blue); }
+    .type-badge.frontend { background: rgba(232,200,109,0.15); color: #e8c86d; }
+    .type-badge.vault { background: rgba(155,127,232,0.15); color: var(--keel-purple); }
+
+    .partner-stat {
+      display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0;
+    }
+    .partner-stat .val { font-weight: 600; color: var(--accent-light); }
+
+    .add-partner-btn {
+      width: 100%; padding: 10px; border: 1px dashed var(--border); border-radius: 8px;
+      background: transparent; color: var(--text-dim); font-size: 13px; cursor: pointer; transition: all 0.2s;
+    }
+    .add-partner-btn:hover { border-color: var(--accent); color: var(--accent-light); }
+
+    /* Revenue bottom bar */
+    .revenue-wrapper {
+      grid-column: 2;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 16px 24px;
+    }
+    .revenue-summary {
+      display: flex;
+      align-items: flex-start;
+      gap: 40px;
+    }
+    .revenue-group {
+      flex: 1;
+    }
+    .revenue-group-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; display: block;
+    }
+    .rev-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .rev-table th {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+      color: var(--text-dim); text-align: right; padding: 0 0 6px 12px;
+    }
+    .rev-table th:first-child { text-align: left; padding-left: 0; }
+    .rev-table td { padding: 3px 0 3px 12px; text-align: right; color: var(--text-dim); }
+    .rev-table td:first-child { text-align: left; padding-left: 0; color: var(--text-dim); }
+    .rev-table td.tvl { color: var(--text); font-weight: 500; }
+    .rev-table td.amt { font-weight: 600; }
+    .rev-table tr.subtotal td { border-top: 1px solid var(--border); padding-top: 6px; font-weight: 600; color: var(--text); }
+    .rev-table tr.subtotal-mid td { border-top: 1px dashed var(--border); padding-top: 6px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+    .rev-table tr.spacer td { height: 10px; }
+    .rev-table tr.neg td.amt { color: #e85d5d; }
+    .rev-table tr.neg td:first-child { color: #e85d5d; }
+    .rev-table tr.expandable td:first-child { cursor: pointer; user-select: none; }
+    .rev-table tr.expandable td:first-child::before { content: '▸ '; font-size: 16px; color: var(--accent-light); vertical-align: middle; }
+    .rev-table tr.expandable.expanded td:first-child::before { content: '▾ '; font-size: 16px; }
+    .rev-table tr.detail-row td { padding-left: 24px; font-size: 11px; color: var(--text-dim); }
+    .rev-table tr.detail-row td:first-child { padding-left: 12px; }
+    .rev-table tr.detail-row { display: none; }
+    .rev-table tr.detail-row.visible { display: table-row; }
+    .revenue-total {
+      flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center;
+      align-items: center; padding: 12px 24px;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+      min-width: 180px;
+    }
+    .revenue-total .total-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
+    }
+    .revenue-total .total-value { font-size: 22px; font-weight: 700; color: var(--keel-purple); }
+
+    /* Main */
+    .main { padding: 16px; display: flex; flex-direction: column; overflow: hidden; }
+
+    .main-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+    .main-header h2 { font-size: 16px; font-weight: 600; }
+
+    .legend { display: flex; gap: 20px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+    .view-toggle { display: flex; background: var(--surface2); border-radius: 6px; padding: 2px; }
+    .view-toggle button {
+      padding: 6px 14px; border: none; border-radius: 4px; font-size: 12px; font-weight: 500;
+      cursor: pointer; background: transparent; color: var(--text-dim); transition: all 0.2s;
+    }
+    .view-toggle button.active { background: var(--accent); color: white; }
+
+    .share-btn {
+      padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--surface2); color: var(--text-dim); font-size: 12px; font-weight: 500;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .share-btn:hover { border-color: var(--accent); color: var(--accent-light); }
+    .share-btn.copied { background: var(--accent); color: white; border-color: var(--accent); }
+
+    .sankey-container {
+      flex: 1; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; position: relative; min-height: 0;
+    }
+
+    .node text { font-family: 'Inter', -apple-system, sans-serif; font-size: 12px; font-weight: 600; fill: var(--text); }
+    .node .node-value { font-size: 10px; font-weight: 400; fill: var(--text-dim); }
+    .link { fill: none; stroke-opacity: 0.3; transition: stroke-opacity 0.2s; }
+    .link:hover { stroke-opacity: 0.55; }
+
+    .tooltip {
+      position: absolute; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; font-size: 12px; pointer-events: none;
+      opacity: 0; transition: opacity 0.15s; z-index: 10; max-width: 280px; line-height: 1.5;
+    }
+    .tooltip .tt-title { font-weight: 600; margin-bottom: 4px; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 24px; width: 380px;
+    }
+    .modal h3 { font-size: 16px; margin-bottom: 16px; }
+    .modal label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; margin-top: 12px; }
+    .modal input[type="text"], .modal input[type="number"], .modal select {
+      width: 100%; padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 14px; outline: none;
+    }
+    .modal input:focus, .modal select:focus { border-color: var(--accent); }
+    .checkbox-row { display: flex; gap: 16px; margin-top: 12px; }
+    .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+    .checkbox-label input[type="checkbox"] { accent-color: var(--accent); }
+    .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
+    .btn {
+      flex: 1; padding: 10px; border: none; border-radius: 6px; font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-light); }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+  <div class="sidebar">
+    <h1>Demand Side Primitives</h1>
+    <p class="subtitle">Sky Ecosystem — Keel Revenue Model</p>
+
+    <div class="global-controls">
+      <p class="section-label">Global Parameters</p>
+
+      <div class="control-row">
+        <label>Bridge TVL (USDS on Solana)</label>
+        <span>$<input type="number" class="inline-input" id="bridgeTvlInput" value="65" min="1" step="1">M</span>
+      </div>
+      <input type="range" id="bridgeTvl" min="0" max="500" value="65" step="0.25">
+
+      <div class="control-row">
+        <label>SSR (Sky Savings Rate)</label>
+        <span><input type="number" class="inline-input" id="ssrInput" value="3.75" min="0" max="20" step="0.25">%</span>
+      </div>
+      <input type="range" id="ssr" min="0" max="12" value="3.75" step="0.25">
+
+      <div class="control-row">
+        <label>DR Rate (total, boosted)</label>
+        <span><input type="number" class="inline-input" id="drRateInput" value="50" min="0" max="200" step="1"> bps</span>
+      </div>
+      <input type="range" id="drRate" min="0" max="100" value="50" step="5">
+
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- IB Partners -->
+    <p class="section-label">Integration Boost Partners</p>
+    <div id="ibPartnersList"></div>
+    <button class="add-partner-btn" onclick="openModal('ib')">+ Add IB Partner</button>
+
+    <hr class="section-divider">
+
+    <!-- DR Partners -->
+    <p class="section-label">Distribution Rewards Partners</p>
+    <div id="drPartnersList"></div>
+    <button class="add-partner-btn" onclick="openModal('dr')">+ Add DR Partner</button>
+
+  </div>
+
+  <div class="main">
+    <div class="main-header">
+      <div style="display:flex;align-items:center;gap:16px;">
+        <h2>Fund Flow</h2>
+        <div class="view-toggle">
+          <button class="active" data-view="combined">Combined</button>
+          <button data-view="ib">Integration Boost</button>
+          <button data-view="dr">Distribution Rewards</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--ssr-green)"></div>Integration Boost (SSR)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--dr-orange)"></div>Distribution Rewards</div>
+        </div>
+        <button class="share-btn" id="shareBtn" onclick="shareState()">Share</button>
+      </div>
+    </div>
+    <div class="sankey-container" id="sankeyContainer">
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+  </div>
+
+  <!-- Revenue bottom bar -->
+  <div class="revenue-wrapper">
+    <div class="revenue-summary">
+      <div class="revenue-group">
+        <span class="revenue-group-label" style="color:var(--ssr-green)">Integration Boost (SSR <span id="revSSR">—</span>)</span>
+        <table class="rev-table">
+          <thead><tr><th></th><th>TVL</th><th>Annual</th></tr></thead>
+          <tbody id="ibTableBody"></tbody>
+        </table>
+      </div>
+      <div class="revenue-group">
+        <span class="revenue-group-label" style="color:var(--dr-orange)">Distribution Rewards (<span id="revDRRate">—</span>)</span>
+        <table class="rev-table">
+          <thead><tr><th></th><th>TVL</th><th>Annual</th></tr></thead>
+          <tbody id="drTableBody"></tbody>
+        </table>
+      </div>
+      <div class="revenue-total">
+        <span class="total-label">Total Keel Revenue</span>
+        <span class="total-value" id="totalRevenue">—</span>
+        <span style="font-size:11px;color:var(--text-dim);margin-top:2px;">per year</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3 id="modalTitle">Add Partner</h3>
+    <label>Partner Name</label>
+    <input type="text" id="pName" placeholder="e.g. Kamino">
+    <label>Category</label>
+    <select id="pCategory"></select>
+    <label id="pTvlLabel">TVL ($M)</label>
+    <input type="number" id="pTvl" placeholder="e.g. 25" min="0.1" step="0.1">
+    <div id="drShareRow" style="display:none;">
+      <label>DR Split to Partner (%)</label>
+      <input type="number" id="pDrSplit" placeholder="e.g. 50" min="0" max="100" step="5" value="50">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modalAdd">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───
+let ibPartners = [];
+let drPartners = [];
+
+let currentView = 'combined';
+let modalMode = 'ib';
+
+// ─── DOM ───
+const $ = id => document.getElementById(id);
+const bridgeTvlSlider = $('bridgeTvl');
+const ssrSlider = $('ssr');
+const drRateSlider = $('drRate');
+const tooltip = $('tooltip');
+const container = $('sankeyContainer');
+
+// ─── Formatting ───
+const fmtM = v => {
+  if (v <= 0) return '$0';
+  if (v >= 1000) return `$${(v/1000).toFixed(1)}B`;
+  if (v >= 1) return `$${v.toFixed(2)}M`;
+  if (v >= 0.001) { const k = v*1000; return k % 1 === 0 ? `$${k.toFixed(0)}K` : `$${k.toFixed(1)}K`; }
+  return '<$1K';
+};
+
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function getParams() {
+  return {
+    bridgeTvl: +bridgeTvlSlider.value,       // $M
+    ssr: +ssrSlider.value / 100,              // decimal
+    drRate: +drRateSlider.value / 10000,      // decimal
+  };
+}
+
+function updateLabels() {
+  const p = getParams();
+  // Sync inline inputs with slider values
+  $('bridgeTvlInput').value = p.bridgeTvl;
+  $('ssrInput').value = (p.ssr * 100).toFixed(2);
+  $('drRateInput').value = Math.round(p.drRate * 10000);
+}
+
+// ─── Partner Rendering ───
+function renderIBPartners() {
+  const el = $('ibPartnersList');
+  el.innerHTML = '';
+  const p = getParams();
+  ibPartners.forEach((pt, i) => {
+    const ibYield = pt.tvl * p.ssr;
+    const isTreasury = pt.category === 'treasury';
+    el.innerHTML += `
+      <div class="partner-card">
+        <div class="partner-header">
+          <span class="partner-name">${esc(pt.name)}</span>
+          <button class="partner-remove" onclick="ibPartners.splice(${i},1);update();">&times;</button>
+        </div>
+        <div class="partner-type">
+          <span class="type-badge ib">IB</span>
+          <span class="type-badge ${isTreasury ? 'treasury' : 'defi'}">${isTreasury ? 'Treasury' : 'DeFi'}</span>
+        </div>
+        <div class="partner-stat"><span>Eligible TVL</span><span>$<input type="number" class="inline-input" value="${pt.tvl}" min="0.1" step="0.5"
+          oninput="ibPartners[${i}].tvl=+this.value;update(true);"
+          onchange="update();">M</span></div>
+        <input type="range" min="0" max="100" value="${pt.tvl}" step="any"
+          oninput="ibPartners[${i}].tvl=Math.round(+this.value*4)/4;this.previousElementSibling.querySelector('.inline-input').value=ibPartners[${i}].tvl;update(true);"
+          onchange="update();">
+        <div class="partner-stat"><span style="color:var(--ssr-green)">IB Yield</span><span class="val">${fmtM(ibYield)}/yr</span></div>
+        <div class="partner-stat"><span style="color:var(--text-dim);font-size:11px">${isTreasury ? '→ Stays with partner' : '→ Flows to users'}</span></div>
+      </div>`;
+  });
+}
+
+function renderDRPartners() {
+  const el = $('drPartnersList');
+  el.innerHTML = '';
+  const p = getParams();
+  drPartners.forEach((pt, i) => {
+    const drYield = pt.tagged * p.drRate; // $M/yr total DR on this partner's tagged
+    const partnerShare = drYield * (pt.splitPct / 100);
+    const keelShare = drYield * (1 - pt.splitPct / 100);
+    el.innerHTML += `
+      <div class="partner-card">
+        <div class="partner-header">
+          <span class="partner-name">${esc(pt.name)}</span>
+          <button class="partner-remove" onclick="drPartners.splice(${i},1);update();">&times;</button>
+        </div>
+        <div class="partner-type">
+          <span class="type-badge dr">DR</span>
+          <span class="type-badge ${pt.category}">${{defi:'DeFi',treasury:'Treasury',frontend:'Frontend',vault:'Vault'}[pt.category]||pt.category}</span>
+        </div>
+        <div class="partner-stat"><span>Tagged USDS</span><span>$<input type="number" class="inline-input" value="${pt.tagged}" min="0.1" step="0.5"
+          oninput="drPartners[${i}].tagged=+this.value;update(true);"
+          onchange="update();">M</span></div>
+        <input type="range" min="0" max="100" value="${pt.tagged}" step="any"
+          oninput="drPartners[${i}].tagged=Math.round(+this.value*4)/4;this.previousElementSibling.querySelector('.inline-input').value=drPartners[${i}].tagged;update(true);"
+          onchange="update();">
+        <div class="partner-stat"><span style="color:var(--dr-orange)">DR on tagged</span><span class="val">${fmtM(drYield)}/yr</span></div>
+        <div class="partner-stat" style="margin-top:4px;"><span>DR Split → ${esc(pt.name)}</span><span><input type="number" class="inline-input" style="width:50px" value="${pt.splitPct}" min="0" max="100" step="5"
+          oninput="drPartners[${i}].splitPct=+this.value;update(true);"
+          onchange="update();">%</span></div>
+        <input type="range" min="0" max="100" value="${pt.splitPct}" step="any"
+          oninput="drPartners[${i}].splitPct=Math.round(+this.value);this.previousElementSibling.querySelector('.inline-input').value=drPartners[${i}].splitPct;update(true);"
+          onchange="update();">
+        <div class="partner-stat"><span style="color:var(--dr-orange);font-size:11px">→ ${esc(pt.name)}: ${fmtM(partnerShare)}/yr</span><span style="color:var(--keel-purple);font-size:11px">→ Keel: ${fmtM(keelShare)}/yr</span></div>
+      </div>`;
+  });
+}
+
+// ─── Revenue Calculation ───
+function calcRevenue() {
+  const p = getParams();
+
+  // IB
+  const totalIBPartnerTvl = ibPartners.reduce((s, x) => s + x.tvl, 0);
+  const nonPartnerTvl = Math.max(0, p.bridgeTvl - totalIBPartnerTvl);
+  const grossIB = p.bridgeTvl * p.ssr;
+  const ibToPartners = totalIBPartnerTvl * p.ssr;
+  const keelIB = nonPartnerTvl * p.ssr;
+
+  // DR
+  const totalTagged = drPartners.reduce((s, x) => s + x.tagged, 0);
+  const grossDR = p.bridgeTvl * p.drRate;
+  const untaggedDR = Math.max(0, (p.bridgeTvl - totalTagged)) * p.drRate;
+
+  let keelTaggedDR = 0;
+  let partnerDRTotal = 0;
+  drPartners.forEach(pt => {
+    const ptDR = pt.tagged * p.drRate;
+    const toPartner = ptDR * (pt.splitPct / 100);
+    const toKeel = ptDR * (1 - pt.splitPct / 100);
+    partnerDRTotal += toPartner;
+    keelTaggedDR += toKeel;
+  });
+
+  const keelSubproxyDR = untaggedDR + keelTaggedDR;
+
+  return {
+    grossIB, ibToPartners, keelIB,
+    grossDR, untaggedDR, keelTaggedDR, keelSubproxyDR,
+    partnerDRTotal, totalTagged, nonPartnerTvl, totalIBPartnerTvl
+  };
+}
+
+function updateRevenue() {
+  const r = calcRevenue();
+  const p = getParams();
+
+  $('revSSR').textContent = `${(p.ssr * 100).toFixed(2)}%`;
+  $('revDRRate').textContent = `${Math.round(p.drRate * 10000)} bps`;
+
+  // IB table
+  let ibRows = '';
+  ibRows += `<tr><td>Bridge TVL × SSR</td><td class="tvl">${fmtM(p.bridgeTvl)}</td><td class="amt" style="color:var(--ssr-green)">${fmtM(r.grossIB)}</td></tr>`;
+  if (ibPartners.length > 0) {
+    ibRows += `<tr class="neg expandable" onclick="toggleDetails(this,'ib-details')"><td>− Partners (${ibPartners.length})</td><td class="tvl">−${fmtM(r.totalIBPartnerTvl)}</td><td class="amt">−${fmtM(r.ibToPartners)}</td></tr>`;
+    ibPartners.forEach(pt => {
+      const val = pt.tvl * p.ssr;
+      ibRows += `<tr class="detail-row ib-details neg"><td>− ${esc(pt.name)}</td><td class="tvl">−${fmtM(pt.tvl)}</td><td class="amt">−${fmtM(val)}</td></tr>`;
+    });
+  }
+  ibRows += `<tr class="subtotal"><td>= Keel Pioneer Pool</td><td class="tvl" style="color:var(--ssr-green)">${fmtM(r.nonPartnerTvl)}</td><td class="amt" style="color:var(--ssr-green)">${fmtM(r.keelIB)}</td></tr>`;
+  $('ibTableBody').innerHTML = ibRows;
+
+  // DR table
+  let drRows = '';
+  const untaggedTvl = Math.max(0, p.bridgeTvl - r.totalTagged);
+  drRows += `<tr><td>Bridge TVL × DR</td><td class="tvl">${fmtM(p.bridgeTvl)}</td><td class="amt" style="color:var(--dr-orange)">${fmtM(r.grossDR)}</td></tr>`;
+  // Expandable partner subtraction
+  if (drPartners.length > 0) {
+    const totalTaggedDR = drPartners.reduce((s, pt) => s + pt.tagged * p.drRate, 0);
+    drRows += `<tr class="neg expandable" onclick="toggleDetails(this,'dr-tag-details')"><td>− Tagged Partners (${drPartners.length})</td><td class="tvl">−${fmtM(r.totalTagged)}</td><td class="amt">−${fmtM(totalTaggedDR)}</td></tr>`;
+    drPartners.forEach(pt => {
+      const ptDR = pt.tagged * p.drRate;
+      drRows += `<tr class="detail-row dr-tag-details neg"><td>${esc(pt.name)} (${pt.splitPct}% to partner)</td><td class="tvl">−${fmtM(pt.tagged)}</td><td class="amt">−${fmtM(ptDR)}</td></tr>`;
+    });
+  }
+  // Untagged subtotal
+  drRows += `<tr class="subtotal-mid"><td>= Untagged USDS</td><td class="tvl">${fmtM(untaggedTvl)}</td><td class="amt" style="color:var(--dr-orange)">${fmtM(r.untaggedDR)}</td></tr>`;
+  drRows += `<tr class="spacer"><td></td><td></td><td></td></tr>`;
+  // Expandable Keel share additions
+  let keelEligibleTvl = untaggedTvl;
+  let totalKeelTvlShare = 0;
+  drPartners.forEach(pt => {
+    const keelPct = 100 - pt.splitPct;
+    totalKeelTvlShare += pt.tagged * (keelPct / 100);
+    keelEligibleTvl += pt.tagged * (keelPct / 100);
+  });
+  if (drPartners.length > 0) {
+    drRows += `<tr class="expandable" onclick="toggleDetails(this,'dr-keel-details')"><td>+ Keel share from partners (${drPartners.length})</td><td class="tvl">+${fmtM(totalKeelTvlShare)}</td><td class="amt" style="color:var(--dr-orange)">+${fmtM(r.keelTaggedDR)}</td></tr>`;
+    drPartners.forEach(pt => {
+      const keelPct = 100 - pt.splitPct;
+      const keelTvlShare = pt.tagged * (keelPct / 100);
+      const toKeel = pt.tagged * p.drRate * (keelPct / 100);
+      drRows += `<tr class="detail-row dr-keel-details"><td>${esc(pt.name)} (${keelPct}%)</td><td class="tvl">+${fmtM(keelTvlShare)}</td><td class="amt" style="color:var(--dr-orange)">+${fmtM(toKeel)}</td></tr>`;
+    });
+  }
+  drRows += `<tr class="subtotal"><td>= Keel Subproxy</td><td class="tvl" style="color:var(--dr-orange)">${fmtM(keelEligibleTvl)}</td><td class="amt" style="color:var(--dr-orange)">${fmtM(r.keelSubproxyDR)}</td></tr>`;
+  $('drTableBody').innerHTML = drRows;
+
+  // Total
+  $('totalRevenue').textContent = fmtM(r.keelIB + r.keelSubproxyDR);
+}
+
+// ─── Toggle Details ───
+function toggleDetails(trigger, className) {
+  trigger.classList.toggle('expanded');
+  document.querySelectorAll('.' + className).forEach(row => row.classList.toggle('visible'));
+}
+
+// ─── Sankey ───
+function buildSankeyData() {
+  const p = getParams();
+  const r = calcRevenue();
+
+  const nodes = [];
+  const links = [];
+  const nodeMap = {};
+
+  function addNode(id, label, color) {
+    if (!(id in nodeMap)) { nodeMap[id] = nodes.length; nodes.push({ id, label, color }); }
+    return nodeMap[id];
+  }
+
+  function addLink(src, tgt, value, color, type, tip) {
+    if (value > 0.001) {
+      links.push({ source: nodeMap[src], target: nodeMap[tgt], value, color, type, tooltip: tip });
+    }
+  }
+
+  const showIB = currentView === 'combined' || currentView === 'ib';
+  const showDR = currentView === 'combined' || currentView === 'dr';
+
+  // ═══════════════════════════════════════════
+  // LEVEL 0: Sky
+  // ═══════════════════════════════════════════
+  addNode('sky', 'Sky', '#e8a0bf');
+
+  // ═══════════════════════════════════════════
+  // INTEGRATION BOOST — top half
+  // Level 1: Solana Bridge (SSR)
+  // Level 2: Partners subtract → remainder to Keel
+  // Level 3: DeFi partners → Users / Treasury retains
+  // Level 4 (final): Keel Pioneer Pool (revenue)
+  // ═══════════════════════════════════════════
+  if (showIB) {
+    const totalIB = p.bridgeTvl * p.ssr;
+    const totalIBPartnerTvl = ibPartners.reduce((s, x) => s + x.tvl, 0);
+    const keelIBTvl = Math.max(0, p.bridgeTvl - totalIBPartnerTvl);
+    const keelIB = keelIBTvl * p.ssr;
+
+    // Nodes
+    addNode('bridge_ib', `Bridge SSR (${(p.ssr*100).toFixed(2)}%)`, '#8aab8a');
+    addNode('keel_pioneer', 'Keel Pioneer Pool', '#9b7fe8');
+
+    const defiPartners = ibPartners.filter(x => x.category === 'defi');
+    const treasuryPartners = ibPartners.filter(x => x.category === 'treasury');
+    if (defiPartners.length > 0) addNode('users', 'Users', '#6db5e8');
+
+    defiPartners.forEach(pt => addNode(`ib_${pt.name}`, pt.name, '#6db5e8'));
+    treasuryPartners.forEach(pt => addNode(`ib_${pt.name}`, `${pt.name} (Treasury)`, '#e88a6d'));
+
+    // L0→L1: Sky → Bridge SSR
+    addLink('sky', 'bridge_ib', totalIB, '#5ec6a0', 'IB',
+      `SSR × Bridge TVL: ${(p.ssr*100).toFixed(2)}% × ${fmtM(p.bridgeTvl)} = ${fmtM(totalIB)}/yr`);
+
+    // L1→L2: Bridge → DeFi partners (subtract from bridge)
+    defiPartners.forEach(pt => {
+      const val = pt.tvl * p.ssr;
+      addLink('bridge_ib', `ib_${pt.name}`, val, '#5ec6a0', 'IB',
+        `${pt.name}: SSR × ${fmtM(pt.tvl)} TVL = ${fmtM(val)}/yr (subtracts from bridge)`);
+    });
+
+    // L1→L2: Bridge → Treasury partners (subtract from bridge)
+    treasuryPartners.forEach(pt => {
+      const val = pt.tvl * p.ssr;
+      addLink('bridge_ib', `ib_${pt.name}`, val, '#5ec6a0', 'IB',
+        `${pt.name}: SSR × ${fmtM(pt.tvl)} treasury = ${fmtM(val)}/yr — retained by partner`);
+    });
+
+    // L1→L2: Bridge → Keel Pioneer Pool (the leftover)
+    addLink('bridge_ib', 'keel_pioneer', keelIB, '#5ec6a0', 'IB',
+      `Keel Pioneer: SSR on remaining TVL (${fmtM(keelIBTvl)} of ${fmtM(p.bridgeTvl)}) = ${fmtM(keelIB)}/yr`);
+
+    // L2→L3: DeFi partners → Users
+    defiPartners.forEach(pt => {
+      const val = pt.tvl * p.ssr;
+      addLink(`ib_${pt.name}`, 'users', val, '#5ec6a080', 'IB',
+        `${pt.name} → Users: IB yield passed through as higher rates`);
+    });
+  }
+
+  // ═══════════════════════════════════════════
+  // DISTRIBUTION REWARDS — bottom half
+  // Level 1: Solana Bridge (DR rate applied to full bridge)
+  // Level 2: Bridge DR → each partner (full tagged DR)
+  //          Bridge DR → Keel Subproxy (untagged DR only)
+  // Level 3: Each partner → Keel Subproxy (Keel's share flows through)
+  //          Partner retains their splitPct share (terminal)
+  // ═══════════════════════════════════════════
+  if (showDR) {
+    const grossDR = p.bridgeTvl * p.drRate;
+    const totalTagged = drPartners.reduce((s, x) => s + x.tagged, 0);
+    const untaggedDR = Math.max(0, (p.bridgeTvl - totalTagged)) * p.drRate;
+
+    // Nodes
+    addNode('bridge_dr', `Bridge DR (${Math.round(p.drRate*10000)} bps)`, '#a08a6d');
+    addNode('keel_sub', 'Keel Subproxy', '#9b7fe8');
+
+    drPartners.forEach(pt => {
+      addNode(`dr_${pt.name}`, pt.name, pt.category === 'frontend' ? '#e8c86d' : pt.category === 'vault' ? '#5ec6a0' : pt.category === 'treasury' ? '#e88a6d' : '#a8d4e8');
+    });
+
+    // L0→L1: Sky → Bridge DR
+    addLink('sky', 'bridge_dr', grossDR, '#e8956d', 'DR',
+      `DR on full bridge: ${Math.round(p.drRate*10000)} bps × ${fmtM(p.bridgeTvl)} = ${fmtM(grossDR)}/yr`);
+
+    // L1→L2: Bridge DR → each partner (their FULL tagged DR)
+    drPartners.forEach(pt => {
+      const ptDR = pt.tagged * p.drRate;
+      addLink('bridge_dr', `dr_${pt.name}`, ptDR, '#e8956d', 'DR',
+        `${pt.name}: DR on ${fmtM(pt.tagged)} tagged USDS = ${fmtM(ptDR)}/yr`);
+    });
+
+    // L1→L2: Bridge DR → Untagged DR node (same level as partners)
+    addNode('dr_untagged', 'Untagged DR', '#9b7fe8');
+    if (untaggedDR > 0.001) {
+      addLink('bridge_dr', 'dr_untagged', untaggedDR, '#e8956d', 'DR',
+        `Untagged DR: ${fmtM(untaggedDR)}/yr on ${fmtM(p.bridgeTvl - totalTagged)} untagged USDS`);
+    }
+
+    // L2→L3: Untagged DR → Keel Subproxy (100% flows through)
+    if (untaggedDR > 0.001) {
+      addLink('dr_untagged', 'keel_sub', untaggedDR, '#e8956d', 'DR',
+        `Untagged DR → Keel Subproxy: 100% = ${fmtM(untaggedDR)}/yr`);
+    }
+
+    // L2→L3: Each partner → Keel Subproxy (Keel's share flows through the partner)
+    drPartners.forEach(pt => {
+      const ptDR = pt.tagged * p.drRate;
+      const toKeel = ptDR * (1 - pt.splitPct / 100);
+      if (toKeel > 0.0001) {
+        addLink(`dr_${pt.name}`, 'keel_sub', toKeel, '#e8956d', 'DR',
+          `${pt.name} → Keel: ${100 - pt.splitPct}% of ${fmtM(ptDR)} = ${fmtM(toKeel)}/yr`);
+      }
+    });
+  }
+
+  return { nodes, links };
+}
+
+function drawSankey() {
+  const rect = container.getBoundingClientRect();
+  const W = rect.width, H = rect.height;
+  // Extra right space reserved for Keel revenue nodes (pushed 1 column further)
+  const keelColWidth = 180;
+  const margin = { top: 24, right: 160 + keelColWidth, bottom: 24, left: 24 };
+
+  d3.select('#sankeyContainer svg').remove();
+
+  const svg = d3.select('#sankeyContainer').append('svg').attr('width', W).attr('height', H);
+
+  const data = buildSankeyData();
+  if (data.links.length === 0) {
+    svg.append('text').attr('x', W/2).attr('y', H/2).attr('text-anchor','middle')
+      .attr('fill','#8b8fa8').attr('font-size',14).text('No flows to display — add partners or switch view');
+    return;
+  }
+
+  const sankey = d3.sankey()
+    .nodeId(d => d.index)
+    .nodeWidth(14)
+    .nodePadding(18)
+    .nodeAlign(d3.sankeyJustify)
+    .extent([[margin.left, margin.top], [W - margin.right, H - margin.bottom]]);
+
+  const graph = sankey({
+    nodes: data.nodes.map(d => ({ ...d })),
+    links: data.links.map(d => ({ ...d }))
+  });
+
+  // Push Keel Pioneer Pool and Keel Subproxy into the reserved extra column
+  const nodeWidth = graph.nodes[0] ? (graph.nodes[0].x1 - graph.nodes[0].x0) : 14;
+  const extraX0 = W - 160 - nodeWidth;  // position in the reserved keelColWidth space
+  const extraX1 = extraX0 + nodeWidth;
+
+  graph.nodes.forEach(n => {
+    if (n.id === 'keel_pioneer' || n.id === 'keel_sub') {
+      n.x0 = extraX0;
+      n.x1 = extraX1;
+    }
+  });
+  // Recompute link paths after repositioning
+  sankey.update(graph);
+
+  // Links
+  svg.append('g').selectAll('path')
+    .data(graph.links).join('path')
+    .attr('class', 'link')
+    .attr('d', d3.sankeyLinkHorizontal())
+    .attr('stroke', d => d.color || '#555')
+    .attr('stroke-width', d => Math.max(4, d.width))
+    .on('mouseenter', (e, d) => {
+      tooltip.style.opacity = 1;
+      tooltip.innerHTML = `<div class="tt-title">${d.type === 'IB' ? 'Integration Boost' : 'Distribution Rewards'}</div><div>${d.tooltip}</div>`;
+    })
+    .on('mousemove', e => {
+      const cr = container.getBoundingClientRect();
+      tooltip.style.left = (e.clientX - cr.left + 14) + 'px';
+      tooltip.style.top = (e.clientY - cr.top - 12) + 'px';
+    })
+    .on('mouseleave', () => tooltip.style.opacity = 0);
+
+  // Nodes
+  const node = svg.append('g').selectAll('g')
+    .data(graph.nodes).join('g').attr('class', 'node');
+
+  node.append('rect')
+    .attr('x', d => d.x0).attr('y', d => d.y0)
+    .attr('width', d => d.x1 - d.x0)
+    .attr('height', d => Math.max(2, d.y1 - d.y0))
+    .attr('fill', d => d.color || '#666')
+    .attr('rx', 4).attr('ry', 4);
+
+  node.append('text')
+    .attr('x', d => d.x0 < W/2 ? d.x1 + 10 : d.x0 - 10)
+    .attr('y', d => (d.y0 + d.y1) / 2)
+    .attr('dy', '-0.3em')
+    .attr('text-anchor', d => d.x0 < W/2 ? 'start' : 'end')
+    .text(d => d.label);
+
+  node.append('text')
+    .attr('class', 'node-value')
+    .attr('x', d => d.x0 < W/2 ? d.x1 + 10 : d.x0 - 10)
+    .attr('y', d => (d.y0 + d.y1) / 2)
+    .attr('dy', '1em')
+    .attr('text-anchor', d => d.x0 < W/2 ? 'start' : 'end')
+    .text(d => {
+      const incoming = graph.links.filter(l => l.target === d);
+      const total = incoming.reduce((s, l) => s + l.value, 0);
+      return total > 0 ? `${fmtM(total)}/yr` : '';
+    });
+}
+
+// ─── Modal ───
+function openModal(mode) {
+  modalMode = mode;
+  $('modalTitle').textContent = mode === 'ib' ? 'Add IB Partner' : 'Add DR Partner';
+  $('pTvlLabel').textContent = mode === 'ib' ? 'Eligible TVL ($M)' : 'Tagged USDS ($M)';
+  $('drShareRow').style.display = mode === 'dr' ? 'block' : 'none';
+  // Populate category options based on mode
+  const cat = $('pCategory');
+  cat.innerHTML = '';
+  if (mode === 'ib') {
+    cat.innerHTML = '<option value="defi">DeFi</option><option value="treasury">Treasury</option>';
+  } else {
+    cat.innerHTML = '<option value="defi">DeFi</option><option value="treasury">Treasury</option><option value="frontend">Frontend</option><option value="vault">Vault</option>';
+  }
+  $('pName').value = '';
+  $('pTvl').value = '';
+  $('pDrSplit').value = '50';
+  $('modalOverlay').classList.add('active');
+  $('pName').focus();
+}
+
+function closeModal() { $('modalOverlay').classList.remove('active'); }
+
+$('modalOverlay').addEventListener('click', e => { if (e.target === $('modalOverlay')) closeModal(); });
+
+$('modalAdd').addEventListener('click', () => {
+  const name = $('pName').value.trim();
+  const tvl = parseFloat($('pTvl').value);
+  const cat = $('pCategory').value;
+  if (!name || isNaN(tvl) || tvl <= 0) return;
+
+  if (modalMode === 'ib') {
+    ibPartners.push({ name, tvl, category: cat });
+  } else {
+    const split = parseFloat($('pDrSplit').value) || 50;
+    drPartners.push({ name, tagged: tvl, splitPct: split, category: cat });
+  }
+  closeModal();
+  update();
+});
+
+// ─── View Toggle ───
+document.querySelectorAll('.view-toggle button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentView = btn.dataset.view;
+    drawSankey();
+  });
+});
+
+// ─── Update Loop ───
+function update(skipPartnerRender) {
+  // Only bump Bridge TVL when partner sums actually exceed it
+  // (let Keel Pioneer Pool / Untagged DR shrink to zero first)
+  const ibTotal = ibPartners.reduce((s, x) => s + x.tvl, 0);
+  const drTotal = drPartners.reduce((s, x) => s + x.tagged, 0);
+  const minBridge = Math.max(ibTotal, drTotal);
+  if (+bridgeTvlSlider.value < minBridge) {
+    bridgeTvlSlider.max = Math.max(500, minBridge + 50);
+    bridgeTvlSlider.value = minBridge;
+  }
+
+  updateLabels();
+  if (!skipPartnerRender) {
+    renderIBPartners();
+    renderDRPartners();
+  }
+  updateRevenue();
+  drawSankey();
+  saveToLocalStorage();
+}
+
+// Slider → update
+[bridgeTvlSlider, ssrSlider, drRateSlider].forEach(s => s.addEventListener('input', update));
+
+// Inline number inputs → sync to sliders
+$('bridgeTvlInput').addEventListener('input', function() {
+  bridgeTvlSlider.value = +this.value || 0;
+  bridgeTvlSlider.max = Math.max(500, +this.value + 50);
+  update();
+});
+$('ssrInput').addEventListener('input', function() {
+  ssrSlider.value = +this.value || 0;
+  update();
+});
+$('drRateInput').addEventListener('input', function() {
+  drRateSlider.value = +this.value || 0;
+  update();
+});
+
+window.addEventListener('resize', drawSankey);
+
+// ─── URL State ───
+function encodeState() {
+  const p = getParams();
+  const state = {
+    b: p.bridgeTvl,
+    s: +(p.ssr * 100).toFixed(2),
+    d: Math.round(p.drRate * 10000),
+    ib: ibPartners.map(pt => ({ n: pt.name, t: pt.tvl, c: pt.category })),
+    dr: drPartners.map(pt => ({ n: pt.name, t: pt.tagged, s: pt.splitPct, c: pt.category })),
+  };
+  return btoa(JSON.stringify(state));
+}
+
+function decodeState(hash) {
+  try {
+    const state = JSON.parse(atob(hash));
+    if (state.b !== undefined) bridgeTvlSlider.value = state.b;
+    if (state.s !== undefined) ssrSlider.value = state.s;
+    if (state.d !== undefined) drRateSlider.value = state.d;
+    if (state.ib) ibPartners = state.ib.map(p => ({ name: p.n, tvl: p.t, category: p.c || 'defi' }));
+    if (state.dr) drPartners = state.dr.map(p => ({ name: p.n, tagged: p.t, splitPct: p.s, category: p.c || 'defi' }));
+    // Update slider max if needed
+    bridgeTvlSlider.max = Math.max(500, +bridgeTvlSlider.value + 50);
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+function shareState() {
+  const url = window.location.origin + window.location.pathname + '#' + encodeState();
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = $('shareBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Share'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function saveToLocalStorage() {
+  try { localStorage.setItem('demandSideSankey', encodeState()); } catch(e) {}
+}
+
+// Load state: URL hash takes priority, then localStorage, then blank defaults
+if (window.location.hash.length > 1) {
+  decodeState(window.location.hash.slice(1));
+} else {
+  const saved = localStorage.getItem('demandSideSankey');
+  if (saved) decodeState(saved);
+}
+
+update();
+</script>
+</body>
+</html>
