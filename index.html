@@ -209,6 +209,18 @@
       border-radius: 12px; overflow: hidden; position: relative; min-height: 0;
     }
 
+    .undo-redo {
+      position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; z-index: 5;
+    }
+    .undo-redo button {
+      width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--surface2); color: var(--text-dim); font-size: 16px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s; padding: 0;
+    }
+    .undo-redo button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-light); }
+    .undo-redo button:disabled { opacity: 0.3; cursor: default; }
+
     .node text { font-family: 'Inter', -apple-system, sans-serif; font-size: 12px; font-weight: 600; fill: var(--text); }
     .node .node-value { font-size: 10px; font-weight: 400; fill: var(--text-dim); }
     .link { fill: none; stroke-opacity: 0.3; transition: stroke-opacity 0.2s; }
@@ -317,6 +329,10 @@
       </div>
     </div>
     <div class="sankey-container" id="sankeyContainer">
+      <div class="undo-redo">
+        <button id="undoBtn" title="Undo" disabled onclick="undo()">↩</button>
+        <button id="redoBtn" title="Redo" disabled onclick="redo()">↪</button>
+      </div>
       <div class="tooltip" id="tooltip"></div>
     </div>
   </div>
@@ -369,13 +385,6 @@
 </div>
 
 <script>
-// ─── State ───
-let ibPartners = [];
-let drPartners = [];
-
-let currentView = 'combined';
-let modalMode = 'ib';
-
 // ─── DOM ───
 const $ = id => document.getElementById(id);
 const bridgeTvlSlider = $('bridgeTvl');
@@ -383,6 +392,75 @@ const ssrSlider = $('ssr');
 const drRateSlider = $('drRate');
 const tooltip = $('tooltip');
 const container = $('sankeyContainer');
+
+// ─── State ───
+let ibPartners = [];
+let drPartners = [];
+
+let currentView = 'combined';
+let modalMode = 'ib';
+
+// ─── Undo / Redo ───
+const undoStack = [];
+const redoStack = [];
+let isUndoRedo = false;
+
+function captureSnapshot() {
+  return JSON.stringify({
+    b: +bridgeTvlSlider.value,
+    s: +ssrSlider.value,
+    d: +drRateSlider.value,
+    ib: ibPartners.map(p => ({ ...p })),
+    dr: drPartners.map(p => ({ ...p })),
+  });
+}
+
+function restoreSnapshot(snap) {
+  const s = JSON.parse(snap);
+  bridgeTvlSlider.value = s.b;
+  bridgeTvlSlider.max = Math.max(500, s.b + 50);
+  ssrSlider.value = s.s;
+  drRateSlider.value = s.d;
+  ibPartners = s.ib;
+  drPartners = s.dr;
+}
+
+function pushUndo() {
+  if (isUndoRedo) return;
+  const snap = captureSnapshot();
+  // Don't push duplicates
+  if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snap) return;
+  undoStack.push(snap);
+  if (undoStack.length > 100) undoStack.shift(); // cap history
+  redoStack.length = 0; // clear redo on new action
+  updateUndoRedoButtons();
+}
+
+function undo() {
+  if (undoStack.length < 2) return;
+  isUndoRedo = true;
+  redoStack.push(undoStack.pop()); // current state → redo
+  restoreSnapshot(undoStack[undoStack.length - 1]);
+  update();
+  isUndoRedo = false;
+  updateUndoRedoButtons();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  isUndoRedo = true;
+  const snap = redoStack.pop();
+  undoStack.push(snap);
+  restoreSnapshot(snap);
+  update();
+  isUndoRedo = false;
+  updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  $('undoBtn').disabled = undoStack.length < 2;
+  $('redoBtn').disabled = redoStack.length === 0;
+}
 
 // ─── Formatting ───
 const fmtM = v => {
@@ -724,7 +802,7 @@ function drawSankey() {
   const W = rect.width, H = rect.height;
   // Extra right space reserved for Keel revenue nodes (pushed 1 column further)
   const keelColWidth = 180;
-  const margin = { top: 24, right: 160 + keelColWidth, bottom: 24, left: 24 };
+  const margin = { top: 48, right: 160 + keelColWidth, bottom: 48, left: 40 };
 
   d3.select('#sankeyContainer svg').remove();
 
@@ -737,12 +815,16 @@ function drawSankey() {
     return;
   }
 
+  // Scale down the diagram extent so it doesn't fill the full box
+  const maxSankeyH = Math.min(H - margin.top - margin.bottom, 500);
+  const sankeyTop = margin.top + (H - margin.top - margin.bottom - maxSankeyH) / 2;
+
   const sankey = d3.sankey()
     .nodeId(d => d.index)
     .nodeWidth(14)
-    .nodePadding(18)
+    .nodePadding(22)
     .nodeAlign(d3.sankeyJustify)
-    .extent([[margin.left, margin.top], [W - margin.right, H - margin.bottom]]);
+    .extent([[margin.left, sankeyTop], [W - margin.right, sankeyTop + maxSankeyH]]);
 
   const graph = sankey({
     nodes: data.nodes.map(d => ({ ...d })),
@@ -879,6 +961,7 @@ function update(skipPartnerRender) {
   if (!skipPartnerRender) {
     renderIBPartners();
     renderDRPartners();
+    pushUndo();
   }
   updateRevenue();
   drawSankey();
@@ -904,6 +987,13 @@ $('drRateInput').addEventListener('input', function() {
 });
 
 window.addEventListener('resize', drawSankey);
+
+// Keyboard shortcuts for undo/redo
+window.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'y') { e.preventDefault(); redo(); }
+});
 
 // ─── URL State ───
 function encodeState() {
