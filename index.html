@@ -815,16 +815,17 @@ function drawSankey() {
     return;
   }
 
-  // Scale down the diagram extent so it doesn't fill the full box
-  const maxSankeyH = Math.min(H - margin.top - margin.bottom, 500);
-  const sankeyTop = margin.top + (H - margin.top - margin.bottom - maxSankeyH) / 2;
+  // Use 70% of available height so diagram doesn't fill the whole box
+  const availH = H - margin.top - margin.bottom;
+  const sankeyH = Math.round(availH * 0.70);
+  const sankeyTop = margin.top + (availH - sankeyH) / 2;
 
   const sankey = d3.sankey()
     .nodeId(d => d.index)
     .nodeWidth(14)
     .nodePadding(22)
     .nodeAlign(d3.sankeyJustify)
-    .extent([[margin.left, sankeyTop], [W - margin.right, sankeyTop + maxSankeyH]]);
+    .extent([[margin.left, sankeyTop], [W - margin.right, sankeyTop + sankeyH]]);
 
   const graph = sankey({
     nodes: data.nodes.map(d => ({ ...d })),
@@ -833,7 +834,7 @@ function drawSankey() {
 
   // Push Keel Pioneer Pool and Keel Subproxy into the reserved extra column
   const nodeWidth = graph.nodes[0] ? (graph.nodes[0].x1 - graph.nodes[0].x0) : 14;
-  const extraX0 = W - 160 - nodeWidth;  // position in the reserved keelColWidth space
+  const extraX0 = W - 160 - nodeWidth;
   const extraX1 = extraX0 + nodeWidth;
 
   graph.nodes.forEach(n => {
@@ -842,6 +843,35 @@ function drawSankey() {
       n.x1 = extraX1;
     }
   });
+
+  // ── Spread terminal nodes outward so the flows fan out left→right ──
+  // Find vertical bounds of the laid-out diagram
+  const allY0 = Math.min(...graph.nodes.map(n => n.y0));
+  const allY1 = Math.max(...graph.nodes.map(n => n.y1));
+  const diagramMid = (allY0 + allY1) / 2;
+  const spreadTarget = { top: margin.top + 10, bottom: H - margin.bottom - 10 };
+
+  // For each node, the further right it is, the more it spreads from center
+  const maxX = Math.max(...graph.nodes.map(n => n.x0));
+  const minX = Math.min(...graph.nodes.map(n => n.x0));
+  const xRange = maxX - minX || 1;
+
+  graph.nodes.forEach(n => {
+    // How far right is this node (0 = leftmost, 1 = rightmost)
+    const xPct = (n.x0 - minX) / xRange;
+    // Spread factor: 0 at left, full spread at right
+    const spread = xPct * 0.5; // 50% additional spread at rightmost column
+    const nodeMid = (n.y0 + n.y1) / 2;
+    const nodeH = n.y1 - n.y0;
+    // Push away from center proportionally
+    const offset = (nodeMid - diagramMid) * spread;
+    n.y0 += offset;
+    n.y1 = n.y0 + nodeH;
+    // Clamp to container bounds
+    if (n.y0 < spreadTarget.top) { n.y0 = spreadTarget.top; n.y1 = n.y0 + nodeH; }
+    if (n.y1 > spreadTarget.bottom) { n.y1 = spreadTarget.bottom; n.y0 = n.y1 - nodeH; }
+  });
+
   // Recompute link paths after repositioning
   sankey.update(graph);
 
